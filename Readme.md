@@ -6,97 +6,28 @@ Solarisエビデンス収集ツール
 
 Solaris サーバのシステム構成情報を収集します。
 
-システム要件
-------------
-
-**検査対象サーバ**
-
-* vCenter, Linux は 検査用PCから検査用アカウントでssh接続できる環境が必要です。
-* Windows は WMF4.0以上(PowerShell用)が必要です。Windows 2012 Server R2は標準インストールされています。Windows 2012 Server, Windows 2008 ServerはWMF 4.0のインストールが必要です。
-* PowerShell のリモートアクセス許可設定が必要です。詳細は、**ドキュメント:使用方法** の事前準備を参照してください。
-
-**検査用PC**
-
-* JDK1.8以上
-* WFM4.0以上(Windows検査用)
-* VMWare vSphere Client, PowerCLI 5.5以上(vCenter検査用)
-* 7-zip(zip utility)、UTF-8が扱えるエディタ(Notepad ++等)
-* Excel 2007以上
-
 ビルド方法
 ----------
 
-GitHub サイトからリポジトリをクローンして、以下のGradleタスクを実行します。
-
-**Note** 英語版が必要な場合は、build.grade ファイル内の行を、
- def language  = 'en' に変更してください。
+GitHub サイトからリポジトリをクローンして、以下のエクスポートコマンドを実行します。
 
 ```
-cd gradle-server-acceptance
-gradlew test
-gradlew zipApp
-```
-
-実行すると、以下アーカイブファイルが生成されます。
-
-```
-dir /b build\distributions
-gradle-server-acceptance-0.1.7.zip
+cd server-acceptance-solaris
+getconfig -x ../server-acceptance-solaris.zip
+      [zip] Building zip: /work/gradle/server-acceptance-solaris.zip
 ```
 
 利用方法
 --------
 
-1. 7-zip を用いて、 gradle-server-acceptance-0.1.7.zip を解凍します。
-2. 「check_sheet.xlsx」を開き、シート「チェック対象」に検査対象サーバの接続情報を記入します。
-3. config/config.groovy 内のサーバアカウント情報を編集します。
+1. プロジェクトディレクトリ下に、 server-acceptance-solaris.zip を解凍します。
+2. 「solarisチェックシート.xlsx」を開き、シート「チェック対象」に検査対象サーバの接続情報を記入します。
+3. config/config-solaris.groovy 内のサーバアカウント情報を編集します。
 4. server-acceptance ディレクトリに移動し、以下の getconfig コマンドを実行します。
 
 ```
-usage: getconfig -c ./config/config.groovy
- -c,--config <config.groovy>             Config file path
- -d,--dry-run                            Enable Dry run test
-    --decode <config.groovy-encrypted>   Decode config file
-    --encode <config.groovy>             Encode config file
-    --excel <check_sheet.xlsx>           Excel sheet path
- -g,--generate </work/project>           Generate project directory
- -h,--help                               Print usage
- -k,--keyword <password>                 Config file password
-    --parallel <arg>                     Degree of test runner processes
- -r,--resource <arg>                     Dry run test resource directory
- -s,--server <svr1,svr2,...>             Filtering list of servers
- -t,--test <vm,cpu,...>                  Filtering list of test_ids
- -u,--update <local|db|db-all>           Update node config
-    --verify                             Disable verify test
- -x,--xport </work/project.zip>          Export project zip file
+getconfig -c ./config/config-solaris.groovy
 ```
-
-CMDBの利用
-----------
-
-検査結果をMySQLに登録します。
-事前に以下コマンドでMySQLインスタンスを作成します。
-(キャラクタセットは'utfmb4'にしてください。)
-
-```
-CREATE DATABASE cmdb DEFAULT CHARSET utf8mb4;
-```
-
-config/cmdb.groovy 内のJDBC接続設定を編集します。
-
-検査実行後、以下の手順で検査結果を登録します。
-
-```
-getconfig -u db
-```
-
-Reference
----------
-
-* [Groovy SSH](https://github.com/int128/groovy-ssh)
-* [Apache POI](https://poi.apache.org/)
-* [PowerShell](https://github.com/PowerShell/PowerShell)
-* [PowerCLI](https://www.vmware.com/support/developer/PowerCLI/)
 
 AUTHOR
 -----------
