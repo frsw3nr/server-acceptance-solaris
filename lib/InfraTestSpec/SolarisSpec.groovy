@@ -2,7 +2,8 @@ package InfraTestSpec
 
 import groovy.util.logging.Slf4j
 import groovy.transform.InheritConstructors
-import org.hidetake.groovy.ssh.Ssh
+// import org.hidetake.groovy.ssh.Ssh
+import ch.ethz.ssh2.Connection
 import jp.co.toshiba.ITInfra.acceptance.InfraTestSpec.*
 import jp.co.toshiba.ITInfra.acceptance.*
 import org.apache.commons.net.util.SubnetUtils
@@ -10,10 +11,70 @@ import org.apache.commons.net.util.SubnetUtils.SubnetInfo
 
 @Slf4j
 @InheritConstructors
-class SolarisSpec extends LinuxSpecBase {
+class SolarisSpec extends InfraTestSpec {
+
+    String ip
+    String os_user
+    String os_password
+    String work_dir
+    int    timeout = 30
 
     def init() {
         super.init()
+
+        this.ip          = test_server.ip
+        def os_account   = test_server.os_account
+        this.os_user     = os_account['user']
+        this.os_password = os_account['password']
+        this.work_dir    = os_account['work_dir']
+        this.timeout     = test_server.timeout
+    }
+
+    def setup_exec(TestItem[] test_items) {
+        super.setup_exec()
+
+        def con = new Connection(this.ip, 22)
+        con.connect()
+        def result = con.authenticateWithPassword(this.os_user, this.os_password)
+        if (!result) {
+            println "connect failed"
+            return
+        }
+        test_items.each {
+            def method = this.metaClass.getMetaMethod(it.test_id, Object, TestItem)
+            if (method) {
+                log.debug "Invoke command '${method.name}()'"
+                try {
+                    long start = System.currentTimeMillis();
+                    method.invoke(this, con, it)
+                    long elapsed = System.currentTimeMillis() - start
+                    log.debug "Finish test method '${method.name}()' in ${this.server_name}, Elapsed : ${elapsed} ms"
+                    it.succeed = 1
+                } catch (Exception e) {
+                    it.verify_status(false)
+                    log.error "[SSH Test] Test method '${method.name}()' faild, skip.\n" + e
+                }
+            }
+        }
+        con.close()
+    }
+
+    def run_ssh_command(con, command, test_id, share = false) {
+        try {
+            def log_path = (share) ? evidence_log_share_dir : local_dir
+
+            def session = con.openSession()
+println command
+            session.execCommand command
+            def result = session.stdout.text
+            new File("${log_path}/${test_id}").text = result
+            session.close()
+println result
+            return result
+
+        } catch (Exception e) {
+            log.error "[SSH Test] Command error '$command' in ${this.server_name} faild, skip.\n" + e
+        }
     }
 
     def finish() {
@@ -104,27 +165,13 @@ class SolarisSpec extends LinuxSpecBase {
         def lines = exec('swap') {
             run_ssh_command(session, '/usr/sbin/swap -s', 'swap')
         }
-        Closure norm = { value, unit ->
-            if (unit == 'k') {
-                return value
-            } else if (unit == 'm') {
-                return value * 1024
-            } else {
-                return "${value}${unit}"
-            }
-        }
         def swap    = [:].withDefault{0}
-        // swap -s
-        // total: 10492k bytes allocated + 7840k reserved = 18332k used, 21568k available
-        lines.eachLine {
-            (it =~ /\s+(\d+)(.)\s+bytes allocated/).each {m0,m1,m2->
-                swap['swap_alloc'] = norm(m1, m2)
-            }
-            (it =~ /\s+(\d+)(.)\s+reserved/).each {m0,m1,m2->
-                swap['swap_reserve'] = norm(m1, m2)
-            }
-            (it =~ /\s+(\d+)(.)\s+available/).each {m0,m1,m2->
-                swap['swap_total'] = norm(m1, m2)
+        lines.eachLine { line ->
+            def columns = line.split(/\s+/)
+            if (columns.size() > 0) {
+                swap['swap_alloc']   = columns[1]
+                swap['swap_reserve'] = columns[4]
+                swap['swap_total']   = columns[7]
             }
         }
         test_item.results(swap)
