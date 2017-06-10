@@ -57,6 +57,35 @@ class SolarisSpec extends InfraTestSpec {
             }
         }
         con.close()
+        test_items.each { test_item ->
+            if (test_item.test_id == 'logon_test') {
+                _logon_test(test_item)
+            }
+        }
+    }
+
+    def _logon_test(TestItem test_item) {
+        def results = [:]
+        def result = 'Ignored'
+        if (test_server.os_account.logon_test && dry_run == false) {
+            result = 'OK'
+            test_server.os_account.logon_test.each { test_user->
+                try {
+                    def con = new Connection(this.ip, 22)
+                    con.connect()
+                    def isok = con.authenticateWithPassword(test_user.user, test_user.password)
+                    results[test_user.user] = isok
+                    if (!isok)
+                        result = 'NG'
+                } catch (Exception e) {
+                    result = 'NG'
+                    log.error "[SSH Test] faild logon '${test_user.user}', skip.\n" + e
+                    results[test_user.user] = false
+                }
+            }
+        }
+        results['logon_test'] = result
+        test_item.results(results.toString())
     }
 
     def run_ssh_command(con, command, test_id, share = false) {
@@ -64,12 +93,10 @@ class SolarisSpec extends InfraTestSpec {
             def log_path = (share) ? evidence_log_share_dir : local_dir
 
             def session = con.openSession()
-println command
             session.execCommand command
             def result = session.stdout.text
             new File("${log_path}/${test_id}").text = result
             session.close()
-println result
             return result
 
         } catch (Exception e) {
@@ -94,7 +121,8 @@ println result
             run_ssh_command(session, 'awk \'/^domain/ {print $2}\' /etc/resolv.conf', 'hostname_fqdn')
         }
         lines = lines.replaceAll(/(\r|\n)/, "")
-        test_item.results(lines)
+        def info = (lines.size() > 0) ? lines : '[NotConfigured]'
+        test_item.results(info)
     }
 
     def kernel(session, test_item) {
@@ -118,6 +146,7 @@ println result
         def cpuinfo    = [:].withDefault{0}
         def real_cpu   = [:].withDefault{0}
         def cpu_number = 0
+        cpuinfo['cpu_core'] = ''
         lines.eachLine {
             (it =~ /ncpu_per_chip\s+(.+)$/).each {m0,m1->
                 cpu_number += Integer.decode(m1)
@@ -137,6 +166,7 @@ println result
         }
         cpuinfo["cpu_total"] = cpu_number
         cpuinfo["cpu_real"] = real_cpu.size()
+        cpuinfo["cpu"] = "${cpuinfo["model_name"]} ${cpu_number} cpu"
         test_item.results(cpuinfo)
     }
 
@@ -165,23 +195,26 @@ println result
         def lines = exec('swap') {
             run_ssh_command(session, '/usr/sbin/swap -s', 'swap')
         }
-        def swap    = [:].withDefault{0}
-        lines.eachLine { line ->
-            def columns = line.split(/\s+/)
+        def headers = ['alloc', 'reserve', 'used', 'available'] as Queue
+        def infos = [:]
+        lines.eachLine {
+            def columns = it.split(/\s+/)
             if (columns.size() > 0) {
-                swap['swap_alloc']   = columns[1]
-                swap['swap_reserve'] = columns[4]
-                swap['swap_total']   = columns[7]
+                columns.each { column ->
+                    (column=~/(\d+)k/).each { m0,m1 ->
+                        infos['swap.' + headers.poll()] = m1
+                    }
+                }
             }
         }
-        test_item.results(swap)
+        infos['swap'] = "${infos['swap.alloc']} / ${infos['swap.reserve']} / ${infos['swap.available']}"
+        test_item.results(infos)
     }
 
     def network(session, test_item) {
         def lines = exec('network') {
             run_ssh_command(session, '/usr/sbin/ifconfig -a', 'network')
         }
-        def csv = []
         def network = [:].withDefault{[:]}
         def device = ''
         def hw_address = []
@@ -219,17 +252,23 @@ println result
             }
         }
         // mtu:1500, qdisc:noqueue, state:DOWN, ip:172.17.0.1/16
+        def csv = []
+        def infos = [:].withDefault{[:]}
         network.each { device_id, items ->
             def columns = [device_id]
             ['ip', 'mtu', 'state', 'mac', 'subnet'].each {
-                columns.add(items[it] ?: 'NaN')
+                def value = items[it] ?: 'NaN'
+                columns.add(value)
+                if (it == 'ip' || it == 'subnet') {
+                    infos[device_id][it] = value
+                }
             }
             csv << columns
         }
         def headers = ['device', 'ip', 'mtu', 'state', 'mac', 'subnet']
         test_item.devices(csv, headers)
         test_item.results([
-            'network' : network.keySet().toString(),
+            'network' : infos.toString(),
             'hw_address' : hw_address.toString()
         ])
     }
@@ -276,6 +315,17 @@ println result
         test_item.results(net_route)
     }
 
+    def metastat(session, test_item) {
+        def lines = exec('metastat') {
+            run_ssh_command(session, '/usr/sbin/metastat', 'metastat')
+        }
+        def infos = 'NotConfigured'
+        if (lines.size() > 0) {
+            infos = '[ToDo] Parse metastat'
+            println "${infos} : ${lines}"
+        }
+        test_item.results(infos)
+    }
 
     def filesystem(session, test_item) {
         def lines = exec('filesystem') {
@@ -293,6 +343,7 @@ println result
         // none                     0     0     0    - /proc/sys/fs/binfmt_misc
         def csv = []
         def filesystems = [:]
+        def infos = [:]
         lines.eachLine {
             (it =~  /\s+(\d.+)$/).each { m0,m1->
                 def columns = m1.split(/\s+/)
@@ -301,6 +352,7 @@ println result
                     def mount = columns[4]
                     (size =~ /^[1-9]/).each { row ->
                         filesystems['filesystem.' + mount] = size
+                        infos[mount] = size
                         csv << columns
                     }
                 }
@@ -308,22 +360,18 @@ println result
         }
         def headers = ['size', 'used', 'avail', 'use%', 'mountpoint']
         test_item.devices(csv, headers)
-        filesystems['filesystem'] = csv.size().toString()
+        filesystems['filesystem'] = infos.toString()
         test_item.results(filesystems)
     }
 
-    // def virturization(session, test_item) {
-    //     def lines = exec('virturization') {
-    //         run_ssh_command(session, 'cat /proc/cpuinfo', 'virturization')
-    //     }
-    //     def virturization = 'no KVM'
-    //     lines.eachLine {
-    //         if (it =~  /QEMU Virtual CPU|Common KVM processor|Common 32-bit KVM processor/) {
-    //             virturization = 'KVM Guest'
-    //         }
-    //     }
-    //     test_item.results(virturization)
-    // }
+    def virturization(session, test_item) {
+        def lines = exec('virturization') {
+            run_ssh_command(session, '/usr/bin/zonename', 'virturization')
+        }
+        lines = lines.replaceAll(/(\r|\n)/, "")
+        def virturization = (lines.size() > 0) ? lines : 'Unkown'
+        test_item.results(virturization)
+    }
 
     def packages(session, test_item) {
         def lines = exec('packages') {
@@ -350,6 +398,7 @@ println result
         }
         def headers = ['pkginst', 'name', 'category', 'arch', 'version', 'vendor', 'instdate']
         test_item.devices(csv, headers)
+        package_infos['packages'] = "${csv.size()} packages"
         test_item.results(package_infos)
     }
 
@@ -370,22 +419,26 @@ println result
         def csv = []
         def user_count = 0
         def users = [:].withDefault{'unkown'}
+        def homes = [:]
         lines.eachLine {
             def arr = it.split(/:/)
-            if (arr.size() > 4) {
+            if (arr.size() == 7) {
                 def username = arr[0]
                 def user_id  = arr[2]
                 def group_id = arr[3]
+                def home     = arr[5]
+                def shell    = arr[6]
                 def group    = groups[group_id] ?: 'Unkown'
 
-                csv << [username, user_id, group_id, group]
+                csv << [username, user_id, group_id, group, home, shell]
                 user_count ++
+                homes[username] = home
                 users['user.' + username] = 'OK'
             }
         }
-        def headers = ['UserName', 'UserID', 'GroupID', 'Group']
+        def headers = ['UserName', 'UserID', 'GroupID', 'Group', 'Home', 'Shell']
         test_item.devices(csv, headers)
-        users['user'] = user_count
+        users['user'] = homes.toString()
         test_item.results(users)
     }
 
@@ -405,7 +458,7 @@ println result
                 service_count ++
             }
         }
-        services['service'] = service_count.toString()
+        services['service'] = "${service_count} services"
         test_item.devices(csv, ['Name', 'Status'])
         test_item.results(services)
     }
@@ -469,5 +522,20 @@ println result
         test_item.results(ntpservers.toString())
     }
 
+    def snmp_trap(session, test_item) {
+        def lines = exec('snmp_trap') {
+            run_ssh_command(session, "egrep -e '^\\s*trapsink' /etc/snmp/snmpd.conf", 'snmp_trap')
+        }
+        def config = 'NotConfigured'
+        def trapsink = []
+        lines.eachLine {
+            (it =~  /trapsink\s+(.*)$/).each { m0, trap_info ->
+                config = 'Configured'
+                trapsink << trap_info
+            }
+        }
+        def results = ['snmp_trap': config, 'trapsink': trapsink]
+        test_item.results(results.toString())
+    }
 
 }

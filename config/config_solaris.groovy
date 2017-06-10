@@ -15,23 +15,6 @@ evidence.target='./build/Solarisチェックシート_<date>.xlsx'
 
 evidence.staging_dir='./build/log'
 
-// CSV変換マップ
-
-evidence.csv_item_map = [
-    'サーバ名' :            'server_name',
-    'IPアドレス' :          'ip',
-    'Platform' :            'platform',
-    'OSアカウントID' :      'os_account_id',
-    'vCenterアカウントID' : 'remote_account_id',
-    'VMエイリアス名' :      'remote_alias',
-    '検査ID' :              'verify_id',
-    '比較対象サーバ名' :    'compare_server',
-    'CPU数' :               'NumCpu',
-    'メモリ量' :            'MemoryGB',
-    'ESXi名' :              'ESXiHost',
-    'HDD' :                 'HDDtype',
-]
-
 // 並列化しないタスク
 // 並列度を指定をしても、指定したドメインタスクはシリアルに実行する
 
@@ -52,10 +35,10 @@ test.Solaris.timeout = 300
 
 // Solaris 接続情報
 
-account.Solaris.Test.user      = 'someuser'
-account.Solaris.Test.password  = 'P@ssword'
+account.Solaris.Test.user      = 'root'
+account.Solaris.Test.password  = 'Passw0rd'
 account.Solaris.Test.work_dir  = '/tmp/gradle_test'
-// account.Solaris.Test.logon_test = [['user':'test1' , 'password':'test1'],
+//account.Solaris.Test.logon_test = [['user':'psadmin', 'password':'minor17A'],
 //                                   ['user':'root'  , 'password':'P@ssw0rd']]
 
  
