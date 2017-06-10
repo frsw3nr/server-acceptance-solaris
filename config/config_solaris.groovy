@@ -38,7 +38,7 @@ test.Solaris.timeout = 300
 account.Solaris.Test.user      = 'root'
 account.Solaris.Test.password  = 'Passw0rd'
 account.Solaris.Test.work_dir  = '/tmp/gradle_test'
-//account.Solaris.Test.logon_test = [['user':'psadmin', 'password':'minor17A'],
+//account.Solaris.Test.logon_test = [['user':'someuser', 'password':'P@ssword'],
 //                                   ['user':'root'  , 'password':'P@ssw0rd']]
 
  
